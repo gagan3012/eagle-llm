@@ -1,4 +1,4 @@
-from pyt.pyt import hello
+from eagle.pyt import hello
 
 
 def test_hello():
