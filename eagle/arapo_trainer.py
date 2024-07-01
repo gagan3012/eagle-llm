@@ -1,8 +1,9 @@
-from trl import CPOTrainer
-from typing import Tuple, Dict, Union, List, Literal
+from typing import Dict, List, Literal, Tuple, Union
+
 import torch
 import torch.nn.functional as F
 from torch import nn
+from trl import CPOTrainer
 
 
 class ArapoTrainer(CPOTrainer):
@@ -23,7 +24,9 @@ class ArapoTrainer(CPOTrainer):
             The losses tensor contains the CPO loss for each example in the batch.
             The chosen_rewards and rejected_rewards tensors contain the rewards for the chosen and rejected responses, respectively.
         """
-        logits = (policy_chosen_logps - policy_rejected_logps).to(self.accelerator.device)
+        logits = (policy_chosen_logps - policy_rejected_logps).to(
+            self.accelerator.device
+        )
 
         gamma_logratios = self.simpo_gamma / self.beta
         logits = logits - gamma_logratios
@@ -32,12 +35,15 @@ class ArapoTrainer(CPOTrainer):
             -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
             - F.logsigmoid(-self.beta * logits) * self.label_smoothing
         )
-        
-        chosen_rewards = self.beta * (policy_chosen_logps.to(self.accelerator.device)).detach()
-        rejected_rewards = self.beta * (policy_rejected_logps.to(self.accelerator.device)).detach()
+
+        chosen_rewards = (
+            self.beta * (policy_chosen_logps.to(self.accelerator.device)).detach()
+        )
+        rejected_rewards = (
+            self.beta * (policy_rejected_logps.to(self.accelerator.device)).detach()
+        )
 
         return losses, chosen_rewards, rejected_rewards
-    
 
     @staticmethod
     def get_batch_logps(
@@ -60,7 +66,9 @@ class ArapoTrainer(CPOTrainer):
             A tensor of shape (batch_size,) containing the average/sum log probabilities of the given labels under the given logits.
         """
         if logits.shape[:-1] != labels.shape:
-            raise ValueError("Logits (batch and sequence length dim) and labels must have the same shape.")
+            raise ValueError(
+                "Logits (batch and sequence length dim) and labels must have the same shape."
+            )
 
         if not is_encoder_decoder:
             labels = labels[:, 1:].clone()
@@ -70,7 +78,9 @@ class ArapoTrainer(CPOTrainer):
         # dummy token; we'll ignore the losses on these tokens later
         labels[labels == label_pad_token_id] = 0
 
-        per_token_logps = torch.gather(logits.log_softmax(-1), dim=2, index=labels.unsqueeze(2)).squeeze(2)
+        per_token_logps = torch.gather(
+            logits.log_softmax(-1), dim=2, index=labels.unsqueeze(2)
+        ).squeeze(2)
 
         if average_log_prob:
             return (per_token_logps * loss_mask).sum(-1) / loss_mask.sum(-1)
@@ -79,7 +89,9 @@ class ArapoTrainer(CPOTrainer):
 
     def concatenated_forward(
         self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]]
-    ) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+    ) -> Tuple[
+        torch.FloatTensor, torch.FloatTensor, torch.FloatTensor, torch.FloatTensor
+    ]:
         """Run the given model on the given batch of inputs, concatenating the chosen and rejected inputs together.
 
         We do this to avoid doing two forward passes, because it's faster for FSDP.
@@ -95,7 +107,9 @@ class ArapoTrainer(CPOTrainer):
 
         model_kwargs = (
             {
-                "decoder_input_ids": self._shift_right(concatenated_batch["concatenated_labels"]),
+                "decoder_input_ids": self._shift_right(
+                    concatenated_batch["concatenated_labels"]
+                ),
             }
             if self.is_encoder_decoder
             else {}
@@ -148,7 +162,14 @@ class ArapoTrainer(CPOTrainer):
         rejected_logits = all_logits[len_chosen:]
 
         if self.aux_loss_enabled:
-            return (chosen_logps, rejected_logps, chosen_logits, rejected_logits, nll_loss, outputs.aux_loss)
+            return (
+                chosen_logps,
+                rejected_logps,
+                chosen_logits,
+                rejected_logits,
+                nll_loss,
+                outputs.aux_loss,
+            )
 
         return (chosen_logps, rejected_logps, chosen_logits, rejected_logits, nll_loss)
 
@@ -184,10 +205,14 @@ class ArapoTrainer(CPOTrainer):
         metrics[f"{prefix}rewards/chosen"] = chosen_rewards.mean().cpu()
         metrics[f"{prefix}rewards/rejected"] = rejected_rewards.mean().cpu()
         metrics[f"{prefix}rewards/accuracies"] = reward_accuracies.mean().cpu()
-        metrics[f"{prefix}rewards/margins"] = (chosen_rewards - rejected_rewards).mean().cpu()
+        metrics[f"{prefix}rewards/margins"] = (
+            (chosen_rewards - rejected_rewards).mean().cpu()
+        )
         metrics[f"{prefix}logps/rejected"] = policy_rejected_logps.detach().mean().cpu()
         metrics[f"{prefix}logps/chosen"] = policy_chosen_logps.detach().mean().cpu()
-        metrics[f"{prefix}logits/rejected"] = policy_rejected_logits.detach().mean().cpu()
+        metrics[f"{prefix}logits/rejected"] = (
+            policy_rejected_logits.detach().mean().cpu()
+        )
         metrics[f"{prefix}logits/chosen"] = policy_chosen_logits.detach().mean().cpu()
         metrics[f"{prefix}nll_loss"] = policy_nll_loss.detach().mean().cpu()
 
@@ -195,5 +220,3 @@ class ArapoTrainer(CPOTrainer):
             loss += getattr(model.config, "router_aux_loss_coef", 0.0) * aux_loss
 
         return loss, metrics
-
-
