@@ -1,11 +1,11 @@
-from trl import CPOTrainer
+from trl import CPOTrainer, CPOConfig
 from typing import Tuple, Dict, Union, List, Literal
 import torch
 import torch.nn.functional as F
 from torch import nn
+from transformers import Trainer
 
-
-class ArapoTrainer(CPOTrainer):
+class AraPOTrainer(Trainer):
 
     def arapo_loss(
         self,
@@ -29,8 +29,7 @@ class ArapoTrainer(CPOTrainer):
         logits = logits - gamma_logratios
 
         losses = (
-            -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
-            - F.logsigmoid(-self.beta * logits) * self.label_smoothing
+            -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing) - F.logsigmoid(-self.beta * logits) * self.label_smoothing
         )
         
         chosen_rewards = self.beta * (policy_chosen_logps.to(self.accelerator.device)).detach()
@@ -128,10 +127,8 @@ class ArapoTrainer(CPOTrainer):
 
         labels = concatenated_batch["concatenated_labels"].clone()
 
-        if self.cpo_alpha == 0:
-            nll_loss = torch.tensor(0.0).to(self.accelerator.device)
-        else:
-            nll_loss = cross_entropy_loss(all_logits[:len_chosen], labels[:len_chosen])
+        
+        nll_loss = cross_entropy_loss(all_logits[:len_chosen], labels[:len_chosen])
 
         all_logps = self.get_batch_logps(
             all_logits,
@@ -177,7 +174,7 @@ class ArapoTrainer(CPOTrainer):
             policy_rejected_logps,
         )
 
-        loss = losses.mean() + self.cpo_alpha * policy_nll_loss
+        loss = losses.mean() + policy_nll_loss
         reward_accuracies = (chosen_rewards > rejected_rewards).float()
 
         prefix = "eval_" if train_eval == "eval" else ""
@@ -197,3 +194,6 @@ class ArapoTrainer(CPOTrainer):
         return loss, metrics
 
 
+def AraPOConfig(CPOConfig):
+    """AraPO configuration class."""
+    pass
